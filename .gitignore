@@ -26,7 +26,19 @@ go.work.sum
 
 # env file
 .env
+secrets/
+
+# Frontend artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/*.tsbuildinfo
+
+# Backend local build/cache artifacts
+backend/privatedrive-api
+backend/.gocache/
 
 # Editor/IDE
 # .idea/
 # .vscode/
+.DS_Store
