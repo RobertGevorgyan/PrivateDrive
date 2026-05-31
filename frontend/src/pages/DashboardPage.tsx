@@ -434,7 +434,7 @@ export function DashboardPage({ user }: Props) {
       await renewPlan(plan, picked);
       return;
     }
-    document.getElementById(`backup-input-${plan.id}`)?.click();
+    await reconnectPlanFolder(plan);
   }
 
   async function renewPlanFromFolderInput(plan: BackupPlan, event: ChangeEvent<HTMLInputElement>) {
@@ -481,7 +481,7 @@ export function DashboardPage({ user }: Props) {
       try {
         setProgress({ label: `Renew ${plan.displayName}: ${entry.relativePath}`, value: 0 });
         await uploadFile(user, entry.file, (value) => setProgress({ label: `Renew ${plan.displayName}: ${value}%`, value }), {
-          relativePath: entry.relativePath,
+          relativePath: backupUploadPath(plan, entry),
           thumbnailDataUrl: await safeThumbnail(entry.file)
         });
         bytes += entry.file.size;
@@ -649,7 +649,6 @@ export function DashboardPage({ user }: Props) {
                     <div><strong>{plan.displayName}</strong><span>{plan.selectedPathLabel} · {plan.fileManifest?.length ?? 0} plików · ostatnio: {formatDate(plan.lastBackupAt)}</span></div>
                     <div className="row-actions backup-actions">
                       <button className="button button-secondary" onClick={() => renewPlanFromStoredFolder(plan)}><RefreshCcw size={18} /> Sprawdź zmiany</button>
-                      <button className="button button-ghost" onClick={() => reconnectPlanFolder(plan)}><FolderPlus size={18} /> Folder</button>
                       <button className="icon-button danger" aria-label="Usuń backup" onClick={() => deleteBackupPlan(plan)}><Trash2 size={18} /></button>
                       <input id={`backup-input-${plan.id}`} hidden type="file" multiple webkitdirectory="" onChange={(event) => renewPlanFromFolderInput(plan, event)} />
                     </div>
@@ -711,6 +710,19 @@ function toPickedDirectoryFiles(files: File[]): PickedDirectoryFile[] {
 
 function getRelativePath(file: File): string {
   return ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/^\/+/, '');
+}
+
+function backupUploadPath(plan: BackupPlan, entry: PickedDirectoryFile): string {
+  const root = cleanPathSegment(plan.selectedPathLabel || plan.displayName || 'Backup');
+  const relativePath = entry.relativePath.replace(/^\/+/, '');
+  if (!root || relativePath === root || relativePath.startsWith(`${root}/`)) {
+    return relativePath;
+  }
+  return `${root}/${relativePath}`;
+}
+
+function cleanPathSegment(value: string): string {
+  return value.split('/').filter(Boolean).at(-1)?.trim() || 'Backup';
 }
 
 function directoryHandleKey(uid: string, planID: string): string {
