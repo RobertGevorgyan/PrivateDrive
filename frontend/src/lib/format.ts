@@ -16,7 +16,7 @@ export function vibrateDone(): void {
 
 export function notify(title: string, body: string): void {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  const options = { body, icon: '/logo.svg', badge: '/logo.svg' };
+  const options = { body, icon: '/icon-192.png', badge: '/icon-192.png' };
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.ready
       .then((registration) => registration.showNotification(title, options))

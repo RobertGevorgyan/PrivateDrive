@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['logo.svg', 'firebase-messaging-sw.js'],
+      includeAssets: ['logo.svg', 'favicon.png', 'apple-touch-icon.png', 'icon-192.png', 'icon-512.png', 'icon-maskable.png', 'firebase-messaging-sw.js'],
       manifest: {
         name: 'PrivateDrive',
         short_name: 'PrivateDrive',
@@ -20,7 +20,9 @@ export default defineConfig({
         start_url: '/',
         scope: '/',
         icons: [
-          { src: '/logo.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }
+          { src: '/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/icon-maskable.png', sizes: '1024x1024', type: 'image/png', purpose: 'maskable' }
         ],
         share_target: {
           action: '/share',

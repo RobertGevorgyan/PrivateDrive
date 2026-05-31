@@ -3,17 +3,29 @@ package metadata
 import "time"
 
 type FileRecord struct {
-	ID        string    `json:"id" firestore:"-"`
-	OwnerUID  string    `json:"ownerUid" firestore:"ownerUid"`
-	ObjectKey string    `json:"objectKey" firestore:"objectKey"`
-	Filename  string    `json:"filename" firestore:"filename"`
-	MimeType  string    `json:"mimeType" firestore:"mimeType"`
-	SizeBytes int64     `json:"sizeBytes" firestore:"sizeBytes"`
-	Status    string    `json:"status" firestore:"status"`
-	Tags      []string  `json:"tags" firestore:"tags"`
-	Shared    bool      `json:"shared" firestore:"shared"`
-	CreatedAt time.Time `json:"createdAt" firestore:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt" firestore:"updatedAt"`
+	ID               string    `json:"id" firestore:"-"`
+	OwnerUID         string    `json:"ownerUid" firestore:"ownerUid"`
+	ObjectKey        string    `json:"objectKey" firestore:"objectKey"`
+	Filename         string    `json:"filename" firestore:"filename"`
+	RelativePath     string    `json:"relativePath" firestore:"relativePath"`
+	MimeType         string    `json:"mimeType" firestore:"mimeType"`
+	SizeBytes        int64     `json:"sizeBytes" firestore:"sizeBytes"`
+	ThumbnailDataURL string    `json:"thumbnailDataUrl" firestore:"thumbnailDataUrl"`
+	Status           string    `json:"status" firestore:"status"`
+	Tags             []string  `json:"tags" firestore:"tags"`
+	Shared           bool      `json:"shared" firestore:"shared"`
+	CreatedAt        time.Time `json:"createdAt" firestore:"createdAt"`
+	UpdatedAt        time.Time `json:"updatedAt" firestore:"updatedAt"`
+}
+
+type FolderRecord struct {
+	ID         string    `json:"id" firestore:"-"`
+	OwnerUID   string    `json:"ownerUid" firestore:"ownerUid"`
+	Name       string    `json:"name" firestore:"name"`
+	Path       string    `json:"path" firestore:"path"`
+	ParentPath string    `json:"parentPath" firestore:"parentPath"`
+	CreatedAt  time.Time `json:"createdAt" firestore:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt" firestore:"updatedAt"`
 }
 
 type BackupPlan struct {

@@ -25,6 +25,6 @@ vi.mock('./lib/firebase', () => ({
 describe('App', () => {
   it('renders login screen for anonymous users', () => {
     render(<App />);
-    expect(screen.getByText('Bezpieczny backup telefonu')).toBeInTheDocument();
+    expect(screen.getByText('Zaloguj przez Google')).toBeInTheDocument();
   });
 });

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -18,14 +19,16 @@ import (
 )
 
 type uploadSession struct {
-	ID          string    `json:"id"`
-	OwnerUID    string    `json:"ownerUid"`
-	Filename    string    `json:"filename"`
-	MimeType    string    `json:"mimeType"`
-	SizeBytes   int64     `json:"sizeBytes"`
-	TotalChunks int       `json:"totalChunks"`
-	ChunkSize   int64     `json:"chunkSize"`
-	CreatedAt   time.Time `json:"createdAt"`
+	ID               string    `json:"id"`
+	OwnerUID         string    `json:"ownerUid"`
+	Filename         string    `json:"filename"`
+	RelativePath     string    `json:"relativePath"`
+	MimeType         string    `json:"mimeType"`
+	SizeBytes        int64     `json:"sizeBytes"`
+	ThumbnailDataURL string    `json:"thumbnailDataUrl"`
+	TotalChunks      int       `json:"totalChunks"`
+	ChunkSize        int64     `json:"chunkSize"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 func (s *Server) initChunkUpload(w http.ResponseWriter, r *http.Request) {
@@ -35,11 +38,13 @@ func (s *Server) initChunkUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload struct {
-		Filename    string `json:"filename"`
-		MimeType    string `json:"mimeType"`
-		SizeBytes   int64  `json:"sizeBytes"`
-		TotalChunks int    `json:"totalChunks"`
-		ChunkSize   int64  `json:"chunkSize"`
+		Filename         string `json:"filename"`
+		RelativePath     string `json:"relativePath"`
+		MimeType         string `json:"mimeType"`
+		SizeBytes        int64  `json:"sizeBytes"`
+		TotalChunks      int    `json:"totalChunks"`
+		ChunkSize        int64  `json:"chunkSize"`
+		ThumbnailDataURL string `json:"thumbnailDataUrl"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -57,14 +62,16 @@ func (s *Server) initChunkUpload(w http.ResponseWriter, r *http.Request) {
 		payload.MimeType = "application/octet-stream"
 	}
 	session := uploadSession{
-		ID:          uuid.NewString(),
-		OwnerUID:    user.UID,
-		Filename:    filepath.Base(payload.Filename),
-		MimeType:    payload.MimeType,
-		SizeBytes:   payload.SizeBytes,
-		TotalChunks: payload.TotalChunks,
-		ChunkSize:   payload.ChunkSize,
-		CreatedAt:   time.Now(),
+		ID:               uuid.NewString(),
+		OwnerUID:         user.UID,
+		Filename:         filepath.Base(payload.Filename),
+		RelativePath:     cleanRelativePath(payload.RelativePath, payload.Filename),
+		MimeType:         payload.MimeType,
+		SizeBytes:        payload.SizeBytes,
+		TotalChunks:      payload.TotalChunks,
+		ChunkSize:        payload.ChunkSize,
+		ThumbnailDataURL: payload.ThumbnailDataURL,
+		CreatedAt:        time.Now(),
 	}
 	dir := s.uploadDir(session.ID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -168,14 +175,16 @@ func (s *Server) completeChunkUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	record, err := s.store.CreateFile(r.Context(), metadata.FileRecord{
-		OwnerUID:  user.UID,
-		ObjectKey: objectKey,
-		Filename:  session.Filename,
-		MimeType:  session.MimeType,
-		SizeBytes: session.SizeBytes,
-		Tags:      []string{"manual", "chunked"},
-		Shared:    false,
-		Status:    "available",
+		OwnerUID:         user.UID,
+		ObjectKey:        objectKey,
+		Filename:         session.Filename,
+		RelativePath:     session.RelativePath,
+		MimeType:         session.MimeType,
+		SizeBytes:        session.SizeBytes,
+		ThumbnailDataURL: session.ThumbnailDataURL,
+		Tags:             []string{"manual", "chunked"},
+		Shared:           false,
+		Status:           "available",
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -230,4 +239,25 @@ func (s *Server) uploadDir(id string) string {
 
 func (s *Server) chunkPath(id string, index int) string {
 	return filepath.Join(s.uploadDir(id), fmt.Sprintf("%06d.part", index))
+}
+
+func cleanRelativePath(raw, fallback string) string {
+	cleaned := filepath.ToSlash(filepath.Clean(raw))
+	if cleaned == "." || cleaned == "/" || cleaned == "" {
+		return filepath.Base(fallback)
+	}
+	cleaned = strings.TrimPrefix(cleaned, "/")
+	parts := strings.Split(cleaned, "/")
+	safe := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			continue
+		}
+		safe = append(safe, part)
+	}
+	cleaned = strings.Join(safe, "/")
+	if cleaned == "" || cleaned == "." {
+		return filepath.Base(fallback)
+	}
+	return cleaned
 }

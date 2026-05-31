@@ -7,10 +7,15 @@ type Store interface {
 	CreateFile(ctx context.Context, record FileRecord) (FileRecord, error)
 	ListFiles(ctx context.Context, ownerUID string) ([]FileRecord, error)
 	GetFile(ctx context.Context, ownerUID, id string) (FileRecord, error)
+	MoveFile(ctx context.Context, ownerUID, id, relativePath string) (FileRecord, error)
 	DeleteFile(ctx context.Context, ownerUID, id string) error
+	CreateFolder(ctx context.Context, folder FolderRecord) (FolderRecord, error)
+	ListFolders(ctx context.Context, ownerUID string) ([]FolderRecord, error)
+	DeleteFolderPrefix(ctx context.Context, ownerUID, path string) error
 	CreateBackupPlan(ctx context.Context, plan BackupPlan) (BackupPlan, error)
 	ListBackupPlans(ctx context.Context, ownerUID string) ([]BackupPlan, error)
 	GetBackupPlan(ctx context.Context, ownerUID, id string) (BackupPlan, error)
+	DeleteBackupPlan(ctx context.Context, ownerUID, id string) error
 	UpdateBackupPlanLastRun(ctx context.Context, ownerUID, id string, run BackupRun, manifest []BackupFileEntry) (BackupRun, error)
 	ListBackupRuns(ctx context.Context, ownerUID string) ([]BackupRun, error)
 	SaveFCMToken(ctx context.Context, ownerUID string, token DeviceToken) error

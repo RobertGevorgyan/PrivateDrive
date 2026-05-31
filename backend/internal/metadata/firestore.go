@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -84,12 +85,75 @@ func (s *FirestoreStore) GetFile(ctx context.Context, ownerUID, id string) (File
 	return record, nil
 }
 
+func (s *FirestoreStore) MoveFile(ctx context.Context, ownerUID, id, relativePath string) (FileRecord, error) {
+	record, err := s.GetFile(ctx, ownerUID, id)
+	if err != nil {
+		return FileRecord{}, err
+	}
+	now := time.Now()
+	record.RelativePath = relativePath
+	record.UpdatedAt = now
+	_, err = s.client.Collection("files").Doc(id).Update(ctx, []firestore.Update{
+		{Path: "relativePath", Value: relativePath},
+		{Path: "updatedAt", Value: now},
+	})
+	return record, err
+}
+
 func (s *FirestoreStore) DeleteFile(ctx context.Context, ownerUID, id string) error {
 	if _, err := s.GetFile(ctx, ownerUID, id); err != nil {
 		return err
 	}
 	_, err := s.client.Collection("files").Doc(id).Delete(ctx)
 	return err
+}
+
+func (s *FirestoreStore) CreateFolder(ctx context.Context, folder FolderRecord) (FolderRecord, error) {
+	now := time.Now()
+	folder.ID = uuid.NewString()
+	folder.CreatedAt = now
+	folder.UpdatedAt = now
+	_, err := s.client.Collection("folders").Doc(folder.ID).Set(ctx, folder)
+	return folder, err
+}
+
+func (s *FirestoreStore) ListFolders(ctx context.Context, ownerUID string) ([]FolderRecord, error) {
+	iter := s.client.Collection("folders").Where("ownerUid", "==", ownerUID).Documents(ctx)
+	defer iter.Stop()
+	var out []FolderRecord
+	for {
+		doc, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			sort.Slice(out, func(i, j int) bool {
+				return out[i].Path < out[j].Path
+			})
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		var folder FolderRecord
+		if err := doc.DataTo(&folder); err != nil {
+			return nil, err
+		}
+		folder.ID = doc.Ref.ID
+		out = append(out, folder)
+	}
+}
+
+func (s *FirestoreStore) DeleteFolderPrefix(ctx context.Context, ownerUID, path string) error {
+	folders, err := s.ListFolders(ctx, ownerUID)
+	if err != nil {
+		return err
+	}
+	for _, folder := range folders {
+		if folder.Path == path || strings.HasPrefix(folder.Path, path+"/") {
+			if _, err := s.client.Collection("folders").Doc(folder.ID).Delete(ctx); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (s *FirestoreStore) CreateBackupPlan(ctx context.Context, plan BackupPlan) (BackupPlan, error) {
@@ -143,6 +207,36 @@ func (s *FirestoreStore) GetBackupPlan(ctx context.Context, ownerUID, id string)
 		return BackupPlan{}, errors.New("backup plan not found")
 	}
 	return plan, nil
+}
+
+func (s *FirestoreStore) DeleteBackupPlan(ctx context.Context, ownerUID, id string) error {
+	if _, err := s.GetBackupPlan(ctx, ownerUID, id); err != nil {
+		return err
+	}
+	if _, err := s.client.Collection("backupPlans").Doc(id).Delete(ctx); err != nil {
+		return err
+	}
+	iter := s.client.Collection("backupRuns").Where("ownerUid", "==", ownerUID).Documents(ctx)
+	defer iter.Stop()
+	for {
+		doc, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		var run BackupRun
+		if err := doc.DataTo(&run); err != nil {
+			return err
+		}
+		if run.PlanID != id {
+			continue
+		}
+		if _, err := doc.Ref.Delete(ctx); err != nil {
+			return err
+		}
+	}
 }
 
 func (s *FirestoreStore) UpdateBackupPlanLastRun(ctx context.Context, ownerUID, id string, run BackupRun, manifest []BackupFileEntry) (BackupRun, error) {

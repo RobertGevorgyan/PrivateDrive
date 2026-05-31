@@ -6,9 +6,20 @@ const DEFAULT_CHUNK_SIZE = 8 * 1024 * 1024;
 export type FileRecord = {
   id: string;
   filename: string;
+  relativePath: string;
   mimeType: string;
   sizeBytes: number;
+  thumbnailDataUrl?: string;
   status: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type FolderRecord = {
+  id: string;
+  name: string;
+  path: string;
+  parentPath: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -64,8 +75,13 @@ export async function apiFetch<T>(user: User, path: string, init: RequestInit = 
   return res.json() as Promise<T>;
 }
 
-export function uploadFile(user: User, file: File, onProgress: (value: number) => void): Promise<FileRecord> {
-  return chunkedUpload(user, file, onProgress);
+export type UploadOptions = {
+  relativePath?: string;
+  thumbnailDataUrl?: string;
+};
+
+export function uploadFile(user: User, file: File, onProgress: (value: number) => void, options: UploadOptions = {}): Promise<FileRecord> {
+  return chunkedUpload(user, file, onProgress, options);
 }
 
 export async function downloadFile(user: User, file: FileRecord, onProgress: (value: number) => void): Promise<void> {
@@ -96,6 +112,29 @@ export async function shareFile(user: User, file: FileRecord, onProgress: (value
   onProgress(100);
 }
 
+export async function shareFiles(user: User, files: FileRecord[], onProgress: (value: number) => void): Promise<void> {
+  if (!navigator.share) {
+    throw new Error('Udostępnianie systemowe nie jest dostępne w tej przeglądarce.');
+  }
+  const shareableFiles: File[] = [];
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    const blob = await fetchFileBlob(user, file, (value) => {
+      onProgress(Math.round(((index + value / 100) / files.length) * 100));
+    });
+    shareableFiles.push(new File([blob], file.filename, { type: file.mimeType || 'application/octet-stream' }));
+  }
+  if (navigator.canShare && !navigator.canShare({ files: shareableFiles })) {
+    throw new Error('Te pliki nie mogą zostać udostępnione przez systemowy panel.');
+  }
+  await navigator.share({
+    title: 'PrivateDrive',
+    text: `Pliki z PrivateDrive: ${shareableFiles.length}`,
+    files: shareableFiles
+  });
+  onProgress(100);
+}
+
 async function fetchFileBlob(user: User, file: FileRecord, onProgress: (value: number) => void): Promise<Blob> {
   const bearer = await token(user);
   const res = await fetch(`${API_BASE}/api/files/${file.id}/download`, {
@@ -120,17 +159,19 @@ async function fetchFileBlob(user: User, file: FileRecord, onProgress: (value: n
   return new Blob(chunks.map((chunk) => chunk.slice().buffer), { type: file.mimeType });
 }
 
-async function chunkedUpload(user: User, file: File, onProgress: (value: number) => void): Promise<FileRecord> {
+async function chunkedUpload(user: User, file: File, onProgress: (value: number) => void, options: UploadOptions): Promise<FileRecord> {
   const chunkSize = DEFAULT_CHUNK_SIZE;
   const totalChunks = Math.ceil(file.size / chunkSize);
   const session = await apiFetch<{ uploadId: string; chunkSize: number }>(user, '/api/uploads/init', {
     method: 'POST',
     body: JSON.stringify({
       filename: file.name,
+      relativePath: options.relativePath || file.name,
       mimeType: file.type || 'application/octet-stream',
       sizeBytes: file.size,
       totalChunks,
-      chunkSize
+      chunkSize,
+      thumbnailDataUrl: options.thumbnailDataUrl || ''
     })
   });
   let uploadedBytes = 0;
@@ -182,7 +223,16 @@ function parseError(raw: string): string {
 
 export const filesApi = {
   list: (user: User) => apiFetch<FileRecord[]>(user, '/api/files'),
+  move: (user: User, id: string, relativePath: string) =>
+    apiFetch<FileRecord>(user, `/api/files/${id}/move`, { method: 'PATCH', body: JSON.stringify({ relativePath }) }),
   remove: (user: User, id: string) => apiFetch<void>(user, `/api/files/${id}`, { method: 'DELETE' })
+};
+
+export const foldersApi = {
+  list: (user: User) => apiFetch<FolderRecord[]>(user, '/api/folders'),
+  create: (user: User, payload: { name: string; parentPath: string }) =>
+    apiFetch<FolderRecord>(user, '/api/folders', { method: 'POST', body: JSON.stringify(payload) }),
+  remove: (user: User, path: string) => apiFetch<void>(user, `/api/folders?path=${encodeURIComponent(path)}`, { method: 'DELETE' })
 };
 
 export const backupsApi = {
@@ -190,6 +240,7 @@ export const backupsApi = {
   runs: (user: User) => apiFetch<BackupRun[]>(user, '/api/backups/runs'),
   createPlan: (user: User, payload: { displayName: string; selectedPathLabel: string; includePatterns: string[]; fileManifest: BackupFileEntry[] }) =>
     apiFetch<BackupPlan>(user, '/api/backups/plans', { method: 'POST', body: JSON.stringify(payload) }),
+  removePlan: (user: User, id: string) => apiFetch<void>(user, `/api/backups/plans/${id}`, { method: 'DELETE' }),
   renew: (user: User, id: string, payload: { fileCount: number; skippedCount: number; bytesUploaded: number; errors: string[]; fileManifest: BackupFileEntry[] }) =>
     apiFetch<BackupRun>(user, `/api/backups/plans/${id}/renew`, { method: 'POST', body: JSON.stringify(payload) })
 };

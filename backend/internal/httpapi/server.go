@@ -48,11 +48,16 @@ func New(store metadata.Store, objects storage.Client, authMiddleware func(http.
 	mux.Handle("PUT /api/uploads/{id}/chunks/{index}", authMiddleware(http.HandlerFunc(s.putUploadChunk)))
 	mux.Handle("POST /api/uploads/{id}/complete", authMiddleware(http.HandlerFunc(s.completeChunkUpload)))
 	mux.Handle("GET /api/files", authMiddleware(http.HandlerFunc(s.listFiles)))
+	mux.Handle("GET /api/folders", authMiddleware(http.HandlerFunc(s.listFolders)))
+	mux.Handle("POST /api/folders", authMiddleware(http.HandlerFunc(s.createFolder)))
+	mux.Handle("DELETE /api/folders", authMiddleware(http.HandlerFunc(s.deleteFolder)))
 	mux.Handle("GET /api/files/{id}/download", authMiddleware(http.HandlerFunc(s.downloadFile)))
+	mux.Handle("PATCH /api/files/{id}/move", authMiddleware(http.HandlerFunc(s.moveFile)))
 	mux.Handle("DELETE /api/files/{id}", authMiddleware(http.HandlerFunc(s.deleteFile)))
 	mux.Handle("POST /api/backups/plans", authMiddleware(http.HandlerFunc(s.createBackupPlan)))
 	mux.Handle("GET /api/backups/plans", authMiddleware(http.HandlerFunc(s.listBackupPlans)))
 	mux.Handle("POST /api/backups/plans/{id}/renew", authMiddleware(http.HandlerFunc(s.renewBackupPlan)))
+	mux.Handle("DELETE /api/backups/plans/{id}", authMiddleware(http.HandlerFunc(s.deleteBackupPlan)))
 	mux.Handle("GET /api/backups/runs", authMiddleware(http.HandlerFunc(s.listBackupRuns)))
 	mux.Handle("POST /api/devices/fcm-token", authMiddleware(http.HandlerFunc(s.saveFCMToken)))
 	return s.cors(mux)
@@ -65,7 +70,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 				w.Header().Set("Vary", "Origin")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			}
 		}
 		if r.Method == http.MethodOptions {
@@ -146,6 +151,90 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, files)
 }
 
+func (s *Server) listFolders(w http.ResponseWriter, r *http.Request) {
+	user, err := auth.FromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err)
+		return
+	}
+	folders, err := s.store.ListFolders(r.Context(), user.UID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, folders)
+}
+
+func (s *Server) createFolder(w http.ResponseWriter, r *http.Request) {
+	user, err := auth.FromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err)
+		return
+	}
+	var payload struct {
+		Name       string `json:"name"`
+		ParentPath string `json:"parentPath"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	name := cleanPathPart(payload.Name)
+	if name == "" {
+		writeError(w, http.StatusBadRequest, errors.New("folder name is required"))
+		return
+	}
+	parent := cleanFolderPath(payload.ParentPath)
+	path := name
+	if parent != "" {
+		path = parent + "/" + name
+	}
+	folder, err := s.store.CreateFolder(r.Context(), metadata.FolderRecord{
+		OwnerUID: user.UID, Name: name, ParentPath: parent, Path: path,
+	})
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, folder)
+}
+
+func (s *Server) deleteFolder(w http.ResponseWriter, r *http.Request) {
+	user, err := auth.FromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err)
+		return
+	}
+	path := cleanFolderPath(r.URL.Query().Get("path"))
+	if path == "" {
+		writeError(w, http.StatusBadRequest, errors.New("path is required"))
+		return
+	}
+	files, err := s.store.ListFiles(r.Context(), user.UID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	for _, file := range files {
+		filePath := cleanFolderPath(file.RelativePath)
+		if filePath == path || strings.HasPrefix(filePath, path+"/") {
+			if err := s.objects.Delete(r.Context(), file.ObjectKey); err != nil {
+				writeError(w, http.StatusBadGateway, err)
+				return
+			}
+			if err := s.store.DeleteFile(r.Context(), user.UID, file.ID); err != nil {
+				writeError(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
+	}
+	if err := s.store.DeleteFolderPrefix(r.Context(), user.UID, path); err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 	user, err := auth.FromContext(r.Context())
 	if err != nil {
@@ -189,6 +278,33 @@ func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) moveFile(w http.ResponseWriter, r *http.Request) {
+	user, err := auth.FromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err)
+		return
+	}
+	record, err := s.store.GetFile(r.Context(), user.UID, r.PathValue("id"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	var payload struct {
+		RelativePath string `json:"relativePath"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	nextPath := cleanRelativePath(payload.RelativePath, record.Filename)
+	moved, err := s.store.MoveFile(r.Context(), user.UID, record.ID, nextPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, moved)
 }
 
 func (s *Server) createBackupPlan(w http.ResponseWriter, r *http.Request) {
@@ -235,6 +351,19 @@ func (s *Server) listBackupPlans(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, plans)
+}
+
+func (s *Server) deleteBackupPlan(w http.ResponseWriter, r *http.Request) {
+	user, err := auth.FromContext(r.Context())
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, err)
+		return
+	}
+	if err := s.store.DeleteBackupPlan(r.Context(), user.UID, r.PathValue("id")); err != nil {
+		writeError(w, http.StatusNotFound, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) renewBackupPlan(w http.ResponseWriter, r *http.Request) {
@@ -315,4 +444,21 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 
 func writeError(w http.ResponseWriter, status int, err error) {
 	writeJSON(w, status, map[string]string{"error": err.Error()})
+}
+
+func cleanFolderPath(raw string) string {
+	parts := strings.Split(filepath.ToSlash(filepath.Clean(raw)), "/")
+	safe := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || part == "." || part == ".." {
+			continue
+		}
+		safe = append(safe, part)
+	}
+	return strings.Join(safe, "/")
+}
+
+func cleanPathPart(raw string) string {
+	return strings.Trim(strings.ReplaceAll(filepath.Base(raw), "/", ""), " .")
 }
