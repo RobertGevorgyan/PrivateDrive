@@ -1,5 +1,5 @@
-import { FormEvent, useState } from 'react';
-import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect } from 'firebase/auth';
+import { FormEvent, useEffect, useState } from 'react';
+import { browserLocalPersistence, createUserWithEmailAndPassword, setPersistence, signInWithEmailAndPassword, signInWithPopup, signInWithRedirect } from 'firebase/auth';
 import { Lock, Mail } from 'lucide-react';
 import { auth, googleProvider } from '../lib/firebase';
 import { Logo } from '../components/Logo';
@@ -9,11 +9,21 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [error, setError] = useState('');
+  const [googlePending, setGooglePending] = useState(false);
+
+  useEffect(() => {
+    const redirectError = sessionStorage.getItem('privatedrive.authError');
+    if (redirectError) {
+      sessionStorage.removeItem('privatedrive.authError');
+      setError(redirectError);
+    }
+  }, []);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError('');
     try {
+      await setPersistence(auth, browserLocalPersistence);
       if (mode === 'login') {
         await signInWithEmailAndPassword(auth, email, password);
       } else {
@@ -27,17 +37,17 @@ export function LoginPage() {
   async function signInWithGoogle() {
     setError('');
     try {
-      if (isMobileLike()) {
-        await signInWithRedirect(auth, googleProvider);
-        return;
-      }
+      await setPersistence(auth, browserLocalPersistence);
       await signInWithPopup(auth, googleProvider);
     } catch (err) {
       if (shouldFallbackToRedirect(err)) {
+        setGooglePending(true);
+        sessionStorage.setItem('privatedrive.googleRedirectStarted', '1');
         await signInWithRedirect(auth, googleProvider);
         return;
       }
-      setError(err instanceof Error ? err.message : 'Nie udało się zalogować przez Google.');
+      setGooglePending(false);
+      setError(readableAuthError(err));
     }
   }
 
@@ -47,8 +57,8 @@ export function LoginPage() {
       <section className="login-panel">
         <h1>Bezpieczny backup telefonu</h1>
         <p>Pliki trafiają na prywatny serwer, a Firestore przechowuje tylko metadane i historię backupów.</p>
-        <button className="button button-secondary" onClick={signInWithGoogle}>
-          <Mail size={18} /> Zaloguj przez Google
+        <button className="button button-secondary" onClick={signInWithGoogle} disabled={googlePending}>
+          <Mail size={18} /> {googlePending ? 'Przekierowuję do Google...' : 'Zaloguj przez Google'}
         </button>
         <div className="divider">lub</div>
         <form onSubmit={submit} className="form-stack">
@@ -73,8 +83,21 @@ export function LoginPage() {
   );
 }
 
-function isMobileLike(): boolean {
-  return window.matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+function readableAuthError(err: unknown): string {
+  if (!err || typeof err !== 'object') {
+    return 'Nie udało się zalogować.';
+  }
+  const code = 'code' in err ? String((err as { code?: unknown }).code) : '';
+  if (code === 'auth/unauthorized-domain') {
+    return 'Ta domena nie jest dodana w Firebase Authentication > Authorized domains.';
+  }
+  if (code === 'auth/operation-not-allowed') {
+    return 'Ten sposób logowania nie jest włączony w Firebase Authentication.';
+  }
+  if (code === 'auth/network-request-failed') {
+    return 'Nie udało się połączyć z Firebase. Sprawdź HTTPS, domenę i połączenie.';
+  }
+  return err instanceof Error ? err.message : 'Nie udało się zalogować.';
 }
 
 function shouldFallbackToRedirect(err: unknown): boolean {
@@ -82,5 +105,5 @@ function shouldFallbackToRedirect(err: unknown): boolean {
     return false;
   }
   const code = String((err as { code?: unknown }).code);
-  return code === 'auth/popup-blocked' || code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request';
+  return code === 'auth/popup-blocked' || code === 'auth/cancelled-popup-request';
 }

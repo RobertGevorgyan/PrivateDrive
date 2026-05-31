@@ -7,9 +7,13 @@ vi.mock('./lib/useAuth', () => ({
 }));
 
 vi.mock('firebase/auth', () => ({
+  browserLocalPersistence: {},
   createUserWithEmailAndPassword: vi.fn(),
+  getRedirectResult: vi.fn(() => Promise.resolve(null)),
+  setPersistence: vi.fn(() => Promise.resolve()),
   signInWithEmailAndPassword: vi.fn(),
   signInWithPopup: vi.fn(),
+  signInWithRedirect: vi.fn(),
   GoogleAuthProvider: vi.fn()
 }));
 

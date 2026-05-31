@@ -198,9 +198,10 @@ func (s *Server) createBackupPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload struct {
-		DisplayName       string   `json:"displayName"`
-		SelectedPathLabel string   `json:"selectedPathLabel"`
-		IncludePatterns   []string `json:"includePatterns"`
+		DisplayName       string                     `json:"displayName"`
+		SelectedPathLabel string                     `json:"selectedPathLabel"`
+		IncludePatterns   []string                   `json:"includePatterns"`
+		FileManifest      []metadata.BackupFileEntry `json:"fileManifest"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 		writeError(w, http.StatusBadRequest, err)
@@ -213,7 +214,7 @@ func (s *Server) createBackupPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	plan, err := s.store.CreateBackupPlan(r.Context(), metadata.BackupPlan{
-		OwnerUID: user.UID, DisplayName: payload.DisplayName, SelectedPathLabel: payload.SelectedPathLabel, IncludePatterns: payload.IncludePatterns,
+		OwnerUID: user.UID, DisplayName: payload.DisplayName, SelectedPathLabel: payload.SelectedPathLabel, IncludePatterns: payload.IncludePatterns, FileManifest: payload.FileManifest,
 	})
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err)
@@ -243,9 +244,11 @@ func (s *Server) renewBackupPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload struct {
-		FileCount     int      `json:"fileCount"`
-		BytesUploaded int64    `json:"bytesUploaded"`
-		Errors        []string `json:"errors"`
+		FileCount     int                        `json:"fileCount"`
+		SkippedCount  int                        `json:"skippedCount"`
+		BytesUploaded int64                      `json:"bytesUploaded"`
+		Errors        []string                   `json:"errors"`
+		FileManifest  []metadata.BackupFileEntry `json:"fileManifest"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&payload)
 	status := "completed"
@@ -253,8 +256,8 @@ func (s *Server) renewBackupPlan(w http.ResponseWriter, r *http.Request) {
 		status = "completed_with_errors"
 	}
 	run, err := s.store.UpdateBackupPlanLastRun(r.Context(), user.UID, r.PathValue("id"), metadata.BackupRun{
-		Status: status, FileCount: payload.FileCount, BytesUploaded: payload.BytesUploaded, Errors: payload.Errors,
-	})
+		Status: status, FileCount: payload.FileCount, SkippedCount: payload.SkippedCount, BytesUploaded: payload.BytesUploaded, Errors: payload.Errors,
+	}, payload.FileManifest)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err)
 		return

@@ -18,9 +18,16 @@ export type BackupPlan = {
   displayName: string;
   selectedPathLabel: string;
   includePatterns: string[];
+  fileManifest?: BackupFileEntry[];
   lastBackupAt?: string;
   nextManualRenewHint: string;
   enabled: boolean;
+};
+
+export type BackupFileEntry = {
+  relativePath: string;
+  sizeBytes: number;
+  lastModified: number;
 };
 
 export type BackupRun = {
@@ -30,6 +37,7 @@ export type BackupRun = {
   finishedAt: string;
   status: string;
   fileCount: number;
+  skippedCount: number;
   bytesUploaded: number;
   errors: string[];
 };
@@ -180,9 +188,9 @@ export const filesApi = {
 export const backupsApi = {
   plans: (user: User) => apiFetch<BackupPlan[]>(user, '/api/backups/plans'),
   runs: (user: User) => apiFetch<BackupRun[]>(user, '/api/backups/runs'),
-  createPlan: (user: User, payload: { displayName: string; selectedPathLabel: string; includePatterns: string[] }) =>
+  createPlan: (user: User, payload: { displayName: string; selectedPathLabel: string; includePatterns: string[]; fileManifest: BackupFileEntry[] }) =>
     apiFetch<BackupPlan>(user, '/api/backups/plans', { method: 'POST', body: JSON.stringify(payload) }),
-  renew: (user: User, id: string, payload: { fileCount: number; bytesUploaded: number; errors: string[] }) =>
+  renew: (user: User, id: string, payload: { fileCount: number; skippedCount: number; bytesUploaded: number; errors: string[]; fileManifest: BackupFileEntry[] }) =>
     apiFetch<BackupRun>(user, `/api/backups/plans/${id}/renew`, { method: 'POST', body: JSON.stringify(payload) })
 };
 

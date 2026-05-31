@@ -145,7 +145,7 @@ func (s *FirestoreStore) GetBackupPlan(ctx context.Context, ownerUID, id string)
 	return plan, nil
 }
 
-func (s *FirestoreStore) UpdateBackupPlanLastRun(ctx context.Context, ownerUID, id string, run BackupRun) (BackupRun, error) {
+func (s *FirestoreStore) UpdateBackupPlanLastRun(ctx context.Context, ownerUID, id string, run BackupRun, manifest []BackupFileEntry) (BackupRun, error) {
 	plan, err := s.GetBackupPlan(ctx, ownerUID, id)
 	if err != nil {
 		return BackupRun{}, err
@@ -167,10 +167,14 @@ func (s *FirestoreStore) UpdateBackupPlanLastRun(ctx context.Context, ownerUID, 
 	if err != nil {
 		return BackupRun{}, err
 	}
-	_, err = s.client.Collection("backupPlans").Doc(id).Update(ctx, []firestore.Update{
+	updates := []firestore.Update{
 		{Path: "lastBackupAt", Value: run.FinishedAt},
 		{Path: "updatedAt", Value: now},
-	})
+	}
+	if manifest != nil {
+		updates = append(updates, firestore.Update{Path: "fileManifest", Value: manifest})
+	}
+	_, err = s.client.Collection("backupPlans").Doc(id).Update(ctx, updates)
 	return run, err
 }
 

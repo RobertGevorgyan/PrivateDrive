@@ -17,16 +17,23 @@ type FileRecord struct {
 }
 
 type BackupPlan struct {
-	ID                  string     `json:"id" firestore:"-"`
-	OwnerUID            string     `json:"ownerUid" firestore:"ownerUid"`
-	DisplayName         string     `json:"displayName" firestore:"displayName"`
-	SelectedPathLabel   string     `json:"selectedPathLabel" firestore:"selectedPathLabel"`
-	IncludePatterns     []string   `json:"includePatterns" firestore:"includePatterns"`
-	LastBackupAt        *time.Time `json:"lastBackupAt,omitempty" firestore:"lastBackupAt,omitempty"`
-	NextManualRenewHint string     `json:"nextManualRenewHint" firestore:"nextManualRenewHint"`
-	Enabled             bool       `json:"enabled" firestore:"enabled"`
-	CreatedAt           time.Time  `json:"createdAt" firestore:"createdAt"`
-	UpdatedAt           time.Time  `json:"updatedAt" firestore:"updatedAt"`
+	ID                  string            `json:"id" firestore:"-"`
+	OwnerUID            string            `json:"ownerUid" firestore:"ownerUid"`
+	DisplayName         string            `json:"displayName" firestore:"displayName"`
+	SelectedPathLabel   string            `json:"selectedPathLabel" firestore:"selectedPathLabel"`
+	IncludePatterns     []string          `json:"includePatterns" firestore:"includePatterns"`
+	FileManifest        []BackupFileEntry `json:"fileManifest" firestore:"fileManifest"`
+	LastBackupAt        *time.Time        `json:"lastBackupAt,omitempty" firestore:"lastBackupAt,omitempty"`
+	NextManualRenewHint string            `json:"nextManualRenewHint" firestore:"nextManualRenewHint"`
+	Enabled             bool              `json:"enabled" firestore:"enabled"`
+	CreatedAt           time.Time         `json:"createdAt" firestore:"createdAt"`
+	UpdatedAt           time.Time         `json:"updatedAt" firestore:"updatedAt"`
+}
+
+type BackupFileEntry struct {
+	RelativePath string `json:"relativePath" firestore:"relativePath"`
+	SizeBytes    int64  `json:"sizeBytes" firestore:"sizeBytes"`
+	LastModified int64  `json:"lastModified" firestore:"lastModified"`
 }
 
 type BackupRun struct {
@@ -37,6 +44,7 @@ type BackupRun struct {
 	FinishedAt    time.Time `json:"finishedAt" firestore:"finishedAt"`
 	Status        string    `json:"status" firestore:"status"`
 	FileCount     int       `json:"fileCount" firestore:"fileCount"`
+	SkippedCount  int       `json:"skippedCount" firestore:"skippedCount"`
 	BytesUploaded int64     `json:"bytesUploaded" firestore:"bytesUploaded"`
 	Errors        []string  `json:"errors" firestore:"errors"`
 }

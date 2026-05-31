@@ -11,7 +11,7 @@ type Store interface {
 	CreateBackupPlan(ctx context.Context, plan BackupPlan) (BackupPlan, error)
 	ListBackupPlans(ctx context.Context, ownerUID string) ([]BackupPlan, error)
 	GetBackupPlan(ctx context.Context, ownerUID, id string) (BackupPlan, error)
-	UpdateBackupPlanLastRun(ctx context.Context, ownerUID, id string, run BackupRun) (BackupRun, error)
+	UpdateBackupPlanLastRun(ctx context.Context, ownerUID, id string, run BackupRun, manifest []BackupFileEntry) (BackupRun, error)
 	ListBackupRuns(ctx context.Context, ownerUID string) ([]BackupRun, error)
 	SaveFCMToken(ctx context.Context, ownerUID string, token DeviceToken) error
 }

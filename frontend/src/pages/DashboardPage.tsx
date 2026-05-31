@@ -3,7 +3,7 @@ import type { User } from 'firebase/auth';
 import { signOut } from 'firebase/auth';
 import { Clock3, Download, Files, FolderPlus, FolderSync, LogOut, RefreshCcw, Share2, Trash2, UploadCloud } from 'lucide-react';
 import { auth } from '../lib/firebase';
-import { BackupPlan, BackupRun, backupsApi, devicesApi, downloadFile, FileRecord, filesApi, shareFile, uploadFile } from '../lib/api';
+import { BackupFileEntry, BackupPlan, BackupRun, backupsApi, devicesApi, downloadFile, FileRecord, filesApi, shareFile, uploadFile } from '../lib/api';
 import { formatBytes, formatDate, notify, vibrateDone } from '../lib/format';
 import { requestFcmToken } from '../lib/firebase';
 import { Logo } from '../components/Logo';
@@ -124,24 +124,27 @@ export function DashboardPage({ user }: Props) {
     if (!pickedFiles.length) return;
     setError('');
     const folderName = getFolderName(pickedFiles);
+    const manifest = buildManifest(pickedFiles);
     try {
       const plan = await backupsApi.createPlan(user, {
         displayName: folderName,
         selectedPathLabel: folderName,
-        includePatterns: ['*']
+        includePatterns: ['*'],
+        fileManifest: []
       });
-      await renewPlan(plan, pickedFiles);
+      await renewPlan({ ...plan, fileManifest: [] }, pickedFiles, manifest);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Nie udało się dodać folderu backupu.');
       notify('Błąd synchronizacji', err instanceof Error ? err.message : 'Nie udało się dodać folderu backupu.');
     }
   }
 
-  async function renewPlan(plan: BackupPlan, pickedFiles: File[]) {
+  async function renewPlan(plan: BackupPlan, pickedFiles: File[], nextManifest = buildManifest(pickedFiles)) {
     if (!pickedFiles.length) return;
+    const changedFiles = getChangedFiles(plan.fileManifest ?? [], pickedFiles, nextManifest);
     let bytes = 0;
     const errors: string[] = [];
-    for (const file of pickedFiles) {
+    for (const file of changedFiles) {
       try {
         setProgress({ label: `Renew ${plan.displayName}: ${file.name}`, value: 0 });
         await uploadFile(user, file, (value) => setProgress({ label: `Renew ${plan.displayName}: ${value}%`, value }));
@@ -151,12 +154,20 @@ export function DashboardPage({ user }: Props) {
         errors.push(err instanceof Error ? err.message : `Nie udało się wysłać ${file.name}.`);
       }
     }
-    await backupsApi.renew(user, plan.id, { fileCount: pickedFiles.length, bytesUploaded: bytes, errors });
+    await backupsApi.renew(user, plan.id, {
+      fileCount: changedFiles.length,
+      skippedCount: pickedFiles.length - changedFiles.length,
+      bytesUploaded: bytes,
+      errors,
+      fileManifest: nextManifest
+    });
     vibrateDone();
     if (errors.length) {
       notify('Błąd synchronizacji', `Backup ${plan.displayName} zakończony z błędami.`);
+    } else if (changedFiles.length === 0) {
+      notify('Backup sprawdzony', `Brak zmian w folderze ${plan.displayName}.`);
     } else {
-      notify('Backup zakończony', `Backup ${plan.displayName} zakończony.`);
+      notify('Backup zakończony', `Backup ${plan.displayName}: wysłano ${changedFiles.length}, pominięto ${pickedFiles.length - changedFiles.length}.`);
     }
     setProgress(null);
     await refresh();
@@ -234,9 +245,9 @@ export function DashboardPage({ user }: Props) {
               <div className="list">
                 {plans.map((plan) => (
                   <article className="row" key={plan.id}>
-                    <div><strong>{plan.displayName}</strong><span>{plan.selectedPathLabel} · ostatnio: {formatDate(plan.lastBackupAt)}</span></div>
+                    <div><strong>{plan.displayName}</strong><span>{plan.selectedPathLabel} · {plan.fileManifest?.length ?? 0} plików · ostatnio: {formatDate(plan.lastBackupAt)}</span></div>
                     <label className="button button-secondary">
-                      <RefreshCcw size={18} /> Renew
+                      <RefreshCcw size={18} /> Sprawdź zmiany
                       <input hidden type="file" multiple webkitdirectory="" onChange={(event) => renewPlan(plan, Array.from(event.target.files ?? []))} />
                     </label>
                   </article>
@@ -252,7 +263,7 @@ export function DashboardPage({ user }: Props) {
               <div className="list compact">
                 {runs.map((run) => (
                   <article className="row" key={run.id}>
-                    <div><strong>{run.status}</strong><span>{run.fileCount} plików · {formatBytes(run.bytesUploaded)} · {formatDate(run.finishedAt)}</span></div>
+                    <div><strong>{run.status}</strong><span>wysłano: {run.fileCount} · pominięto: {run.skippedCount ?? 0} · {formatBytes(run.bytesUploaded)} · {formatDate(run.finishedAt)}</span></div>
                   </article>
                 ))}
                 {!runs.length && <p className="muted">Historia backupów pojawi się po pierwszym renew.</p>}
@@ -270,4 +281,28 @@ function getFolderName(files: File[]): string {
   const relativePath = first.webkitRelativePath || first.name;
   const root = relativePath.split('/').filter(Boolean)[0];
   return root || 'Backup folderu';
+}
+
+function buildManifest(files: File[]): BackupFileEntry[] {
+  return files.map((file) => ({
+    relativePath: getRelativePath(file),
+    sizeBytes: file.size,
+    lastModified: file.lastModified
+  })).sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+}
+
+function getChangedFiles(previousManifest: BackupFileEntry[], files: File[], nextManifest: BackupFileEntry[]): File[] {
+  const previous = new Map(previousManifest.map((entry) => [entry.relativePath, entry]));
+  const nextByPath = new Map(nextManifest.map((entry) => [entry.relativePath, entry]));
+  return files.filter((file) => {
+    const path = getRelativePath(file);
+    const oldEntry = previous.get(path);
+    const nextEntry = nextByPath.get(path);
+    if (!oldEntry || !nextEntry) return true;
+    return oldEntry.sizeBytes !== nextEntry.sizeBytes || oldEntry.lastModified !== nextEntry.lastModified;
+  });
+}
+
+function getRelativePath(file: File): string {
+  return ((file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name).replace(/^\/+/, '');
 }

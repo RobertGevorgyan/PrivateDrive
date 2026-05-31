@@ -12,7 +12,6 @@ services:
       UPLOAD_TEMP_DIR: "/tmp/privatedrive-uploads"
     volumes:
       - ${FIREBASE_SERVICE_ACCOUNT_PATH:-./secrets/firebase-service-account.json}:/run/secrets/firebase-service-account.json:ro
-      - upload-temp:/tmp/privatedrive-uploads
     depends_on:
       minio:
         condition: service_healthy
@@ -61,4 +60,3 @@ services:
 
 volumes:
   minio-data:
-  upload-temp:

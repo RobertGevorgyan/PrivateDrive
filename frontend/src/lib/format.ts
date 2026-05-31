@@ -16,5 +16,20 @@ export function vibrateDone(): void {
 
 export function notify(title: string, body: string): void {
   if (!('Notification' in window) || Notification.permission !== 'granted') return;
-  new Notification(title, { body, icon: '/logo.svg' });
+  const options = { body, icon: '/logo.svg', badge: '/logo.svg' };
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.ready
+      .then((registration) => registration.showNotification(title, options))
+      .catch(() => showWindowNotification(title, options));
+    return;
+  }
+  showWindowNotification(title, options);
+}
+
+function showWindowNotification(title: string, options: NotificationOptions): void {
+  try {
+    new Notification(title, options);
+  } catch {
+    // Android standalone PWAs can reject the constructor; in that case the UI progress state remains the fallback.
+  }
 }
